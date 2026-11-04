@@ -10,9 +10,12 @@ Usage: seccomp-tools [--version] [--help] <command> [<options>]
 List of commands:
 
 	asm	Seccomp bpf assembler.
+	audit	Assess a seccomp filter for weaknesses and escape routes.
+	completion	Print a shell completion script.
 	disasm	Disassemble seccomp bpf.
-	dump	Automatically dump seccomp bpf from execution file(s).
+	dump	Automatically dump seccomp bpf from executable(s).
 	emu	Emulate seccomp rules.
+	explain	Summarize a seccomp filter as a per-action policy.
 
 See 'seccomp-tools <command> --help' to read about a specific subcommand.
     EOS
@@ -24,55 +27,114 @@ See 'seccomp-tools <command> --help' to read about a specific subcommand.
 
   it '--help dump' do
     expect { described_class.work(%w[--help dump]) }.to output(<<EOS).to_stdout
-dump - Automatically dump seccomp bpf from execution file(s).
-NOTE : This function is only available on Linux.
+dump - Automatically dump seccomp bpf from executable(s).
+NOTE: This command is only available on Linux.
 
-Usage: seccomp-tools dump [exec] [options]
-    -c, --sh-exec <command>          Executes the given command (via sh).
-                                     Use this option if want to pass arguments or do pipe things to the execution file.
-                                     e.g. use `-c "./bin > /dev/null"` to dump seccomp without being mixed with stdout.
+Usage: seccomp-tools dump [EXEC] [options]
+    -c, --sh-exec <command>          Executes the given command (via sh) and dumps its seccomp.
+                                     Use this to pass arguments or pipe things to the executable.
+                                     e.g. use `-c "./bin > /dev/null"` to keep the program output out of the result.
+                                     Takes precedence over the positional argument.
+    -l, --limit LIMIT                Dump only the first LIMIT installed filters.
+                                     Only meaningful when the input is an executable or --pid. Default: 1
+                                     An executable is killed once it reaches LIMIT.
+    -p, --pid PID                    Dump the seccomp filters installed on an existing process.
+                                     You must have CAP_SYS_ADMIN (e.g. be root) to use this option.
+    -t, --timeout SEC                Timeout (seconds) for the execution. Default: no timeout
+                                     This option is ignored when --pid is given.
     -f, --format FORMAT              Output format. FORMAT can only be one of <disasm|raw|inspect>.
                                      Default: disasm
-    -l, --limit LIMIT                Limit the number of calling "prctl(PR_SET_SECCOMP)".
-                                     The target process will be killed whenever its calling times reaches LIMIT.
-                                     Default: 1
-    -o, --output FILE                Output result into FILE instead of stdout.
+    -o, --output FILE                Write output to FILE instead of stdout.
                                      If multiple seccomp syscalls have been invoked (see --limit),
-                                     results will be written to FILE, FILE_1, FILE_2.. etc.
-                                     For example, "--output out.bpf" and the output files are out.bpf, out_1.bpf, ...
-    -p, --pid PID                    Dump installed seccomp filters of the existing process.
-                                     You must have CAP_SYS_ADMIN (e.g. be root) in order to use this option.
+                                     results are written to FILE, FILE_1, FILE_2, etc.
+                                     For example, with "--output out.bpf" the output files are out.bpf, out_1.bpf, ...
+EOS
+  end
+
+  it 'help audit' do
+    expect { described_class.work(%w[audit --help]) }.to output(<<EOS).to_stdout
+audit - Assess a seccomp filter for weaknesses and escape routes.
+
+Usage: seccomp-tools audit [options] [BPF_FILE|EXEC]
+    -c, --sh-exec <command>          Executes the given command (via sh) and audits its seccomp.
+                                     Use this to pass arguments or pipe things to the executable.
+                                     e.g. use `-c "./bin > /dev/null"` to keep the program output out of the result.
+                                     Takes precedence over the positional argument.
+    -l, --limit LIMIT                Audit only the first LIMIT installed filters.
+                                     Only meaningful when the input is an executable or --pid. Default: 1
+                                     An executable is killed once it reaches LIMIT.
+    -p, --pid PID                    Audit the seccomp filters installed on an existing process.
+                                     You must have CAP_SYS_ADMIN (e.g. be root) to use this option.
+    -t, --timeout SEC                Timeout (seconds) for the execution. Default: no timeout
+                                     This option is ignored when --pid is given.
+    -a, --arch ARCH                  Specify architecture.
+                                     Supported architectures are <aarch64|amd64|i386|riscv64|s390x>.
+                                     Default: auto-detected from the host machine.
+                                     Set it when the filter targets an architecture other than the host.
+                                     With an executable or --pid the architecture is auto-detected instead.
+    -f, --format FORMAT              Output format, one of <human|json>.
+                                     Default: human
 EOS
   end
 
   it 'help disasm' do
-    org = RbConfig::CONFIG['host_cpu']
-    RbConfig::CONFIG['host_cpu'] = 'x86_64'
     expect { described_class.work(%w[disasm --help]) }.to output(<<EOS).to_stdout
 disasm - Disassemble seccomp bpf.
 
 Usage: seccomp-tools disasm BPF_FILE [options]
-    -o, --output FILE                Output result into FILE instead of stdout.
+    -o, --output FILE                Write output to FILE instead of stdout.
     -a, --arch ARCH                  Specify architecture.
-                                     Supported architectures are <aarch64|amd64|i386|s390x>.
-                                     Default: amd64
+                                     Supported architectures are <aarch64|amd64|i386|riscv64|s390x>.
+                                     Default: auto-detected from the host machine.
+                                     Set it when the filter targets an architecture other than the host.
+        --[no-]bpf                   Display BPF bytes (code, jt, etc.).
+                                     Default: true
+        --[no-]arg-infer             Display syscall arguments with parameter names when possible.
+                                     Default: true
+        --asm-able                   Make the output valid input for "seccomp-tools asm".
+                                     By default, "seccomp-tools disasm" outputs a human-readable format meant for analysis.
+                                     With this flag the output is simplified so it can be fed back to "seccomp-tools asm".
+                                     This flag implies "--no-bpf --no-arg-infer".
+                                     Default: false
 EOS
-    RbConfig::CONFIG['host_cpu'] = org
   end
 
   it 'help emu' do
-    org = RbConfig::CONFIG['host_cpu']
-    RbConfig::CONFIG['host_cpu'] = 'x86_64'
     expect { described_class.work(%w[emu --help]) }.to output(<<EOS).to_stdout
 emu - Emulate seccomp rules.
 
 Usage: seccomp-tools emu [options] BPF_FILE [sys_nr [arg0 [arg1 ... arg5]]]
     -a, --arch ARCH                  Specify architecture.
-                                     Supported architectures are <aarch64|amd64|i386|s390x>.
-                                     Default: amd64
+                                     Supported architectures are <aarch64|amd64|i386|riscv64|s390x>.
+                                     Default: auto-detected from the host machine.
+                                     Set it when the filter targets an architecture other than the host.
     -q, --[no-]quiet                 Run quietly, only show emulation result.
+    -i, --ip=VAL                     Set instruction pointer.
 EOS
-    RbConfig::CONFIG['host_cpu'] = org
+  end
+
+  it 'help explain' do
+    expect { described_class.work(%w[explain --help]) }.to output(<<EOS).to_stdout
+explain - Summarize a seccomp filter as a per-action policy.
+
+Usage: seccomp-tools explain [options] [BPF_FILE|EXEC]
+    -c, --sh-exec <command>          Executes the given command (via sh) and explains its seccomp.
+                                     Use this to pass arguments or pipe things to the executable.
+                                     e.g. use `-c "./bin > /dev/null"` to keep the program output out of the result.
+                                     Takes precedence over the positional argument.
+    -l, --limit LIMIT                Explain only the first LIMIT installed filters.
+                                     Only meaningful when the input is an executable or --pid. Default: 1
+                                     An executable is killed once it reaches LIMIT.
+    -p, --pid PID                    Explain the seccomp filters installed on an existing process.
+                                     You must have CAP_SYS_ADMIN (e.g. be root) to use this option.
+    -t, --timeout SEC                Timeout (seconds) for the execution. Default: no timeout
+                                     This option is ignored when --pid is given.
+    -a, --arch ARCH                  Specify architecture.
+                                     Supported architectures are <aarch64|amd64|i386|riscv64|s390x>.
+                                     Default: auto-detected from the host machine.
+                                     Set it when the filter targets an architecture other than the host.
+                                     With an executable or --pid the architecture is auto-detected instead.
+EOS
   end
 
   it 'invalid' do

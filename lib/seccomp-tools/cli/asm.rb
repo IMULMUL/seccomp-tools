@@ -10,8 +10,11 @@ module SeccompTools
       # Summary of this command.
       SUMMARY = 'Seccomp bpf assembler.'
       # Usage of this command.
-      USAGE = "asm - #{SUMMARY}\n\nUsage: seccomp-tools asm IN_FILE [options]"
+      USAGE = "asm - #{SUMMARY}\n\nUsage: seccomp-tools asm IN_FILE [options]".freeze
 
+      # Instantiate an {Asm} object, defaulting the output format to +:inspect+.
+      #
+      # Takes the same arguments as {Base#initialize}.
       def initialize(*)
         super
         option[:format] = :inspect
@@ -19,10 +22,11 @@ module SeccompTools
 
       # Define option parser.
       # @return [OptionParser]
+      #   The parser of this command's options.
       def parser
         @parser ||= OptionParser.new do |opt|
           opt.banner = usage
-          opt.on('-o', '--output FILE', 'Output result into FILE instead of stdout.') do |o|
+          opt.on('-o', '--output FILE', 'Write output to FILE instead of stdout.') do |o|
             option[:ofile] = o
           end
 
@@ -36,7 +40,7 @@ module SeccompTools
         end
       end
 
-      # Handle options.
+      # Assembles the input file and writes the result in the requested format.
       # @return [void]
       def handle
         return unless super
@@ -44,7 +48,7 @@ module SeccompTools
         option[:ifile] = argv.shift
         return CLI.show(parser.help) if option[:ifile].nil?
 
-        res = SeccompTools::Asm.asm(input, arch: option[:arch])
+        res = SeccompTools::Asm.asm(input, filename: option[:ifile], arch: option[:arch])
         output do
           case option[:format]
           when :inspect then "#{res.inspect}\n"

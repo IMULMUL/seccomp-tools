@@ -1,7 +1,9 @@
+# encoding: ascii-8bit
 # frozen_string_literal: true
 
 require 'ostruct'
 
+require 'seccomp-tools/asm/asm'
 require 'seccomp-tools/const'
 require 'seccomp-tools/disasm/disasm'
 require 'seccomp-tools/emulator'
@@ -15,7 +17,7 @@ describe SeccompTools::Emulator do
         code |= SeccompTools::Const::BPF::SRC[:a]
         k = 0
       end
-      SeccompTools::Instruction::RET.new(OpenStruct.new(code: code, k: k))
+      SeccompTools::Instruction::RET.new(OpenStruct.new(code:, k:))
     end
 
     # ld A, immi
@@ -38,7 +40,7 @@ describe SeccompTools::Emulator do
 
   context 'diary' do
     before do
-      raw = IO.binread(File.join(__dir__, 'data', 'twctf-2016-diary.bpf'))
+      raw = File.binread(File.join(__dir__, 'data', 'twctf-2016-diary.bpf'))
       @insts = SeccompTools::Disasm.to_bpf(raw, :amd64).map(&:inst)
     end
 
@@ -58,7 +60,7 @@ describe SeccompTools::Emulator do
 
   context 'CONFidence-2017-amigo' do
     before do
-      raw = IO.binread(File.join(__dir__, 'data', 'CONFidence-2017-amigo.bpf'))
+      raw = File.binread(File.join(__dir__, 'data', 'CONFidence-2017-amigo.bpf'))
       @insts = SeccompTools::Disasm.to_bpf(raw, :i386).map(&:inst)
     end
 
@@ -68,15 +70,15 @@ describe SeccompTools::Emulator do
 
     it 'args' do
       args = [0, 0, 0, 0, 0, 0]
-      expect(described_class.new(@insts, sys_nr: 4, args: args, arch: :amd64).run[:ret]).to be 0
+      expect(described_class.new(@insts, sys_nr: 4, args:, arch: :amd64).run[:ret]).to be 0
       args = [0, 0, 0, 0, 0, 0x313373133731337]
-      expect(described_class.new(@insts, sys_nr: 4, args: args, arch: :amd64).run[:ret]).to be 0x7fff0000
+      expect(described_class.new(@insts, sys_nr: 4, args:, arch: :amd64).run[:ret]).to be 0x7fff0000
     end
   end
 
   context 'misc_alu' do
     before do
-      raw = IO.binread(File.join(__dir__, 'data', 'misc_alu.bpf'))
+      raw = File.binread(File.join(__dir__, 'data', 'misc_alu.bpf'))
       @insts = SeccompTools::Disasm.to_bpf(raw, :i386).map(&:inst)
     end
 
@@ -87,9 +89,29 @@ describe SeccompTools::Emulator do
     end
   end
 
+  context 'division by zero' do
+    def insts_of(src, arch)
+      SeccompTools::Disasm.to_bpf(SeccompTools::Asm.asm(src, arch:), arch).map(&:inst)
+    end
+
+    it 'aborts with KILL_THREAD, matching the kernel, instead of raising' do
+      # `A /= X` with X == 0: the kernel returns 0 (KILL_THREAD) from the whole program and never
+      # reaches the ALLOW, so emulation must do the same, stopping on the div instruction.
+      insts = insts_of(<<-EOS, :amd64)
+        A = 0
+        X = A
+        A /= X
+        return ALLOW
+      EOS
+      result = described_class.new(insts, arch: :amd64).run
+      expect(result[:ret]).to be 0
+      expect(result[:pc]).to be 2 # the `A /= X` line, not the unreached ALLOW
+    end
+  end
+
   context 'bdooos' do
     before do
-      raw = IO.binread(File.join(__dir__, 'data', 'DEF-CON-2020-bdooos.bpf'))
+      raw = File.binread(File.join(__dir__, 'data', 'DEF-CON-2020-bdooos.bpf'))
       @insts = SeccompTools::Disasm.to_bpf(raw, :aarch64).map(&:inst)
     end
 
@@ -99,6 +121,76 @@ describe SeccompTools::Emulator do
 
     it 'kill' do
       expect(described_class.new(@insts, sys_nr: 221, arch: :aarch64).run[:ret]).to be 0x80000000
+    end
+  end
+
+  context 'riscv64' do
+    before do
+      raw = "\x20\x00\x00\x00\x04\x00\x00\x00" \
+            "\x15\x00\x00\x05\xf3\x00\x00\xc0" \
+            "\x20\x00\x00\x00\x00\x00\x00\x00" \
+            "\x15\x00\x02\x00\x02\x01\x00\x00" \
+            "\x15\x00\x01\x00\x03\x01\x00\x00" \
+            "\x06\x00\x00\x00\x00\x00\x00\x80" \
+            "\x06\x00\x00\x00\x00\x00\xff\x7f" \
+            "\x06\x00\x00\x00\x00\x00\x00\x00"
+      @insts = SeccompTools::Disasm.to_bpf(raw, :riscv64).map(&:inst)
+    end
+
+    it 'allow' do
+      expect(described_class.new(@insts, sys_nr: 258, arch: :riscv64).run[:ret]).to be 0x7fff0000
+    end
+
+    it 'kill' do
+      expect(described_class.new(@insts, sys_nr: 63, arch: :riscv64).run[:ret]).to be 0x80000000
+      expect(described_class.new(@insts, sys_nr: 258, arch: :amd64).run[:ret]).to be 0
+    end
+  end
+
+  context 'big-endian (s390x)' do
+    def insts_of(src, arch)
+      SeccompTools::Disasm.to_bpf(SeccompTools::Asm.asm(src, arch:), arch).map(&:inst)
+    end
+
+    it 'reads the high half of an argument from the first word' do
+      # On s390x data[32] is the HIGH half of args[2] and data[36] the low half.
+      src = <<-EOS
+        A = data[32]
+        A == 0x11223344 ? next : allow
+        A = data[36]
+        A == 0x55667788 ? kill : allow
+      allow:
+        return ALLOW
+      kill:
+        return KILL
+      EOS
+      insts = insts_of(src, :s390x)
+      args = [0, 0, 0x1122334455667788]
+      expect(described_class.new(insts, sys_nr: 4, args:, arch: :s390x).run[:ret]).to be 0
+      # The same value with swapped halves must not match.
+      args = [0, 0, 0x5566778811223344]
+      expect(described_class.new(insts, sys_nr: 4, args:, arch: :s390x).run[:ret]).to be 0x7fff0000
+      # A little-endian arch reads the LOW half at data[32], so the original value must not match.
+      insts = insts_of(src, :amd64)
+      args = [0, 0, 0x1122334455667788]
+      expect(described_class.new(insts, sys_nr: 4, args:, arch: :amd64).run[:ret]).to be 0x7fff0000
+    end
+
+    it 'reads instruction_pointer halves in big-endian order' do
+      # On s390x data[8] holds ip >> 32.
+      src = <<-EOS
+        A = data[8]
+        A == 0xdead ? next : allow
+        A = data[12]
+        A == 0xbeef ? kill : allow
+      allow:
+        return ALLOW
+      kill:
+        return KILL
+      EOS
+      insts = insts_of(src, :s390x)
+      expect(described_class.new(insts, instruction_pointer: 0xdead0000beef, arch: :s390x).run[:ret]).to be 0
+      expect(described_class.new(insts, instruction_pointer: 0xbeef0000dead, arch: :s390x).run[:ret]).to be 0x7fff0000
     end
   end
 end

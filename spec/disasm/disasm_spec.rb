@@ -1,6 +1,7 @@
 # encoding: ascii-8bit
 # frozen_string_literal: true
 
+require 'seccomp-tools/asm/asm'
 require 'seccomp-tools/disasm/disasm'
 require 'seccomp-tools/util'
 
@@ -10,7 +11,7 @@ describe SeccompTools::Disasm do
   end
 
   it 'normal' do
-    bpf = IO.binread(File.join(__dir__, '..', 'data', 'twctf-2016-diary.bpf'))
+    bpf = File.binread(File.join(__dir__, '..', 'data', 'twctf-2016-diary.bpf'))
     expect(described_class.disasm(bpf, arch: :amd64)).to eq <<-EOS
  line  CODE  JT   JF      K
 =================================
@@ -36,7 +37,7 @@ describe SeccompTools::Disasm do
   end
 
   it 'libseccomp' do
-    bpf = IO.binread(File.join(__dir__, '..', 'data', 'libseccomp.bpf'))
+    bpf = File.binread(File.join(__dir__, '..', 'data', 'libseccomp.bpf'))
     expect(described_class.disasm(bpf, arch: :amd64)).to eq <<-EOS
  line  CODE  JT   JF      K
 =================================
@@ -55,7 +56,7 @@ describe SeccompTools::Disasm do
   end
 
   it 'i386' do
-    bpf = IO.binread(File.join(__dir__, '..', 'data', 'CONFidence-2017-amigo.bpf'))
+    bpf = File.binread(File.join(__dir__, '..', 'data', 'CONFidence-2017-amigo.bpf'))
     expect(described_class.disasm(bpf, arch: :i386)).to eq <<-EOS
  line  CODE  JT   JF      K
 =================================
@@ -161,7 +162,7 @@ describe SeccompTools::Disasm do
   end
 
   it 'aarch64' do
-    bpf = IO.binread(File.join(__dir__, '..', 'data', 'DEF-CON-2020-bdooos.bpf'))
+    bpf = File.binread(File.join(__dir__, '..', 'data', 'DEF-CON-2020-bdooos.bpf'))
     expect(described_class.disasm(bpf, arch: :aarch64)).to eq <<-EOS
  line  CODE  JT   JF      K
 =================================
@@ -187,8 +188,31 @@ describe SeccompTools::Disasm do
     EOS
   end
 
+  it 'riscv64' do
+    bpf = "\x20\x00\x00\x00\x04\x00\x00\x00" \
+          "\x15\x00\x00\x05\xf3\x00\x00\xc0" \
+          "\x20\x00\x00\x00\x00\x00\x00\x00" \
+          "\x15\x00\x02\x00\x02\x01\x00\x00" \
+          "\x15\x00\x01\x00\x03\x01\x00\x00" \
+          "\x06\x00\x00\x00\x00\x00\x00\x80" \
+          "\x06\x00\x00\x00\x00\x00\xff\x7f" \
+          "\x06\x00\x00\x00\x00\x00\x00\x00"
+    expect(described_class.disasm(bpf, arch: :riscv64)).to eq <<-EOS
+ line  CODE  JT   JF      K
+=================================
+ 0000: 0x20 0x00 0x00 0x00000004  A = arch
+ 0001: 0x15 0x00 0x05 0xc00000f3  if (A != ARCH_RISCV64) goto 0007
+ 0002: 0x20 0x00 0x00 0x00000000  A = sys_number
+ 0003: 0x15 0x02 0x00 0x00000102  if (A == riscv_hwprobe) goto 0006
+ 0004: 0x15 0x01 0x00 0x00000103  if (A == riscv_flush_icache) goto 0006
+ 0005: 0x06 0x00 0x00 0x80000000  return KILL_PROCESS
+ 0006: 0x06 0x00 0x00 0x7fff0000  return ALLOW
+ 0007: 0x06 0x00 0x00 0x00000000  return KILL
+    EOS
+  end
+
   it 'x32 syscall and args' do
-    bpf = IO.binread(File.join(__dir__, '..', 'data', 'x32.bpf'))
+    bpf = File.binread(File.join(__dir__, '..', 'data', 'x32.bpf'))
     expect(described_class.disasm(bpf, arch: :amd64)).to eq <<-EOS
  line  CODE  JT   JF      K
 =================================
@@ -208,7 +232,7 @@ describe SeccompTools::Disasm do
   end
 
   it 'syscall args' do
-    bpf = IO.binread(File.join(__dir__, '..', 'data', 'gctf-2019-quals-caas.bpf'))
+    bpf = File.binread(File.join(__dir__, '..', 'data', 'gctf-2019-quals-caas.bpf'))
     expect(described_class.disasm(bpf, arch: :amd64)).to eq <<-EOS
  line  CODE  JT   JF      K
 =================================
@@ -294,7 +318,7 @@ describe SeccompTools::Disasm do
   end
 
   it 'all instructions' do
-    bpf = IO.binread(File.join(__dir__, '..', 'data', 'all_inst.bpf'))
+    bpf = File.binread(File.join(__dir__, '..', 'data', 'all_inst.bpf'))
     expect(described_class.disasm(bpf, arch: :amd64)).to eq <<-EOS
  line  CODE  JT   JF      K
 =================================
@@ -307,51 +331,51 @@ describe SeccompTools::Disasm do
  0006: 0x20 0x00 0x00 0x00000028  A = args[3]
  0007: 0x20 0x00 0x00 0x00000030  A = args[4]
  0008: 0x20 0x00 0x00 0x00000038  A = args[5]
- 0009: 0x80 0xb7 0x1f 0x00000016  A = 64
- 0010: 0x81 0xfd 0xbd 0x00000067  X = 64
- 0011: 0x06 0xb9 0xcf 0x0000008c  return KILL
- 0012: 0x16 0x4f 0x67 0x000000cc  return A
- 0013: 0x04 0x1a 0xc5 0x00000028  A += 0x28
- 0014: 0x0c 0xd4 0x2f 0x000000a8  A += X
- 0015: 0x14 0xa8 0xe7 0x000000db  A -= 0xdb
- 0016: 0x1c 0x5d 0xd6 0x000000e0  A -= X
- 0017: 0x24 0x3d 0x0e 0x00000052  A *= 0x52
- 0018: 0x2c 0x57 0xaf 0x000000f2  A *= X
- 0019: 0x34 0x9f 0x5a 0x000000ee  A /= 0xee
- 0020: 0x3c 0x48 0x2c 0x00000042  A /= X
- 0021: 0x54 0xf6 0x8f 0x000000ac  A &= 0xac
- 0022: 0x5c 0x61 0xc8 0x00000017  A &= X
- 0023: 0x44 0x81 0x0a 0x000000ef  A |= 0xef
- 0024: 0x4c 0x45 0xc9 0x000000b3  A |= X
- 0025: 0xa4 0x1c 0x40 0x0000009e  A ^= 0x9e
- 0026: 0xac 0x61 0xc1 0x0000008f  A ^= X
- 0027: 0x64 0xde 0x38 0x000000bb  A <<= 187
- 0028: 0x6c 0x05 0x07 0x000000f1  A <<= X
- 0029: 0x74 0x34 0xde 0x0000003b  A >>= 59
- 0030: 0x7c 0xe2 0xc7 0x000000cb  A >>= X
- 0031: 0x84 0xce 0x78 0x00000034  A = -A
- 0032: 0x00 0x46 0x02 0x000000c2  A = 194
- 0033: 0x01 0xe3 0xd4 0x000000a6  X = 166
- 0034: 0x07 0x80 0x93 0x0000003d  X = A
- 0035: 0x87 0x17 0x1a 0x0000007c  A = X
- 0036: 0x60 0x10 0xa1 0x0000000d  A = mem[13]
- 0037: 0x61 0x89 0xed 0x00000050  X = mem[80]
- 0038: 0x02 0x18 0x9f 0x00000022  mem[34] = A
- 0039: 0x03 0xe9 0xf5 0x0000008a  mem[138] = X
- 0040: 0x05 0x08 0xb2 0x00000031  goto 0090
- 0041: 0x15 0x06 0xc6 0x000000f7  if (A == 247) goto 0048 else goto 0240
- 0042: 0x1d 0x9e 0x89 0x00000091  if (A == X) goto 0201 else goto 0180
- 0043: 0x35 0x9a 0xa8 0x0000009e  if (A >= 158) goto 0198 else goto 0212
- 0044: 0x3d 0x03 0x29 0x0000009a  if (A >= X) goto 0048 else goto 0086
- 0045: 0x25 0x02 0x13 0x000000ce  if (A > 206) goto 0048 else goto 0065
- 0046: 0x2d 0x06 0x68 0x00000005  if (A > X) goto 0053 else goto 0151
- 0047: 0x45 0x08 0x9b 0x0000004d  if (A & 77) goto 0056 else goto 0203
- 0048: 0x4d 0x1a 0x61 0x000000bf  if (A & X) goto 0075 else goto 0146
+ 0009: 0x05 0x27 0x0f 0x00000016  goto 0032
+ 0010: 0x15 0x0c 0x1a 0x00000067  if (A == 103) goto 0023 else goto 0037
+ 0011: 0x1d 0x1b 0x1d 0x000000d4  if (A == X) goto 0039 else goto 0041
+ 0012: 0x35 0x0e 0x12 0x0000003d  if (A >= 61) goto 0027 else goto 0031
+ 0013: 0x3d 0x1f 0x1a 0x000000f2  if (A >= X) goto 0045 else goto 0040
+ 0014: 0x25 0x02 0x0f 0x0000002c  if (A > 44) goto 0017 else goto 0030
+ 0015: 0x2d 0x17 0x01 0x000000c8  if (A > X) goto 0039 else goto 0017
+ 0016: 0x45 0x09 0x1c 0x00000045  if (A & 69) goto 0026 else goto 0045
+ 0017: 0x4d 0x01 0x0f 0x00000061  if (A & X) goto 0019 else goto 0033
+ 0018: 0x80 0xde 0x38 0x000000bb  A = 64
+ 0019: 0x81 0x05 0x07 0x000000f1  X = 64
+ 0020: 0x06 0x34 0xde 0x0000003b  return KILL
+ 0021: 0x16 0xe2 0xc7 0x000000cb  return A
+ 0022: 0x04 0xce 0x78 0x00000034  A += 0x34
+ 0023: 0x0c 0x46 0x02 0x000000c2  A += X
+ 0024: 0x14 0xe3 0xd4 0x000000a6  A -= 0xa6
+ 0025: 0x1c 0x80 0x93 0x0000003d  A -= X
+ 0026: 0x24 0x17 0x1a 0x0000007c  A *= 0x7c
+ 0027: 0x2c 0x10 0xa1 0x0000000d  A *= X
+ 0028: 0x34 0x89 0xed 0x00000050  A /= 0x50
+ 0029: 0x3c 0x18 0x9f 0x00000022  A /= X
+ 0030: 0x54 0xe9 0xf5 0x0000008a  A &= 0x8a
+ 0031: 0x5c 0x08 0xb2 0x00000031  A &= X
+ 0032: 0x44 0x06 0xc6 0x000000f7  A |= 0xf7
+ 0033: 0x4c 0x9e 0x89 0x00000091  A |= X
+ 0034: 0xa4 0x9a 0xa8 0x0000009e  A ^= 0x9e
+ 0035: 0xac 0x03 0x29 0x0000009a  A ^= X
+ 0036: 0x64 0x02 0x13 0x000000ce  A <<= 206
+ 0037: 0x6c 0x06 0x68 0x00000005  A <<= X
+ 0038: 0x74 0x08 0x9b 0x0000004d  A >>= 77
+ 0039: 0x7c 0x1a 0x61 0x000000bf  A >>= X
+ 0040: 0x84 0x60 0xfb 0x0000006c  A = -A
+ 0041: 0x00 0x7f 0x01 0x00000074  A = 116
+ 0042: 0x01 0x7c 0x45 0x00000045  X = 69
+ 0043: 0x07 0xb6 0x33 0x00000088  X = A
+ 0044: 0x87 0xab 0x3e 0x0000005d  A = X
+ 0045: 0x60 0x9b 0x23 0x0000000c  A = mem[12]
+ 0046: 0x61 0x27 0x11 0x0000000e  X = mem[14]
+ 0047: 0x02 0xcc 0x2f 0x00000001  mem[1] = A
+ 0048: 0x03 0x4b 0x59 0x0000000c  mem[12] = X
     EOS
   end
 
   it 'test branch function' do
-    raw = IO.binread(File.join(__dir__, '..', 'data', 'misc_alu.bpf'))
+    raw = File.binread(File.join(__dir__, '..', 'data', 'misc_alu.bpf'))
     expect(described_class.disasm(raw, arch: :amd64)).to eq(<<-EOS)
  line  CODE  JT   JF      K
 =================================
@@ -391,8 +415,125 @@ describe SeccompTools::Disasm do
   end
 
   it 'invalid jmp' do
-    expect { described_class.disasm(0x55.chr + "\x00" * 7, arch: :amd64) }.to raise_error(
+    expect { described_class.disasm(0x55.chr + ("\x00" * 7), arch: :amd64) }.to raise_error(
       ArgumentError, 'Line 0 is invalid: unknown jmp type'
     )
+  end
+
+  it 'supports don\'t display BPF' do
+    bpf = [0x15, 0x25, 0x35, 0x45].map { |c| "#{c.chr}\x00\x00\x01\x00\x00\x00\x00" }.join
+    expect(described_class.disasm(bpf, arch: :amd64, display_bpf: false)).to eq(<<-EOS)
+0000: if (A != 0) goto 0002
+0001: if (A <= 0) goto 0003
+0002: if (A < 0) goto 0004
+0003: if (!(A & 0)) goto 0005
+    EOS
+  end
+
+  it 'supports no arg infer' do
+    bpf = File.binread(File.join(__dir__, '..', 'data', 'x32.bpf'))
+    expect(described_class.disasm(bpf, arch: :amd64, arg_infer: false)).to eq <<-EOS
+ line  CODE  JT   JF      K
+=================================
+ 0000: 0x20 0x00 0x00 0x00000004  A = arch
+ 0001: 0x15 0x00 0x09 0xc000003e  if (A != ARCH_X86_64) goto 0011
+ 0002: 0x20 0x00 0x00 0x00000000  A = sys_number
+ 0003: 0x35 0x00 0x07 0x40000000  if (A < 0x40000000) goto 0011
+ 0004: 0x15 0x06 0x00 0x40000000  if (A == x32_read) goto 0011
+ 0005: 0x15 0x05 0x00 0x40000001  if (A == x32_write) goto 0011
+ 0006: 0x15 0x04 0x00 0x400000ac  if (A == x32_iopl) goto 0011
+ 0007: 0x15 0x00 0x03 0x40000009  if (A != x32_mmap) goto 0011
+ 0008: 0x20 0x00 0x00 0x00000010  A = args[0]
+ 0009: 0x15 0x01 0x00 0x00000000  if (A == 0x0) goto 0011
+ 0010: 0x06 0x00 0x00 0x00050005  return ERRNO(5)
+ 0011: 0x06 0x00 0x00 0x7fff0000  return ALLOW
+    EOS
+  end
+
+  it 'supports arch.syscall' do
+    bpf = File.binread(File.join(__dir__, '..', 'data', 'mixed_arch.bpf'))
+    expect(described_class.disasm(bpf, arch: :amd64)).to eq <<-EOS
+ line  CODE  JT   JF      K
+=================================
+ 0000: 0x20 0x00 0x00 0x00000004  A = arch
+ 0001: 0x15 0x00 0x05 0xc000003e  if (A != ARCH_X86_64) goto 0007
+ 0002: 0x20 0x00 0x00 0x00000000  A = sys_number
+ 0003: 0x35 0x17 0x00 0x40000000  if (A >= 0x40000000) goto 0027
+ 0004: 0x15 0x17 0x00 0x00000000  if (A == read) goto 0028
+ 0005: 0x15 0x16 0x00 0x00000001  if (A == write) goto 0028
+ 0006: 0x15 0x15 0x14 0x00000002  if (A == open) goto 0028 else goto 0027
+ 0007: 0x15 0x00 0x04 0x40000003  if (A != ARCH_I386) goto 0012
+ 0008: 0x20 0x00 0x00 0x00000000  A = sys_number
+ 0009: 0x15 0x12 0x00 0x00000000  if (A == i386.restart_syscall) goto 0028
+ 0010: 0x15 0x11 0x00 0x00000001  if (A == i386.exit) goto 0028
+ 0011: 0x15 0x10 0x0f 0x00000002  if (A == i386.fork) goto 0028 else goto 0027
+ 0012: 0x15 0x00 0x04 0xc00000b7  if (A != ARCH_AARCH64) goto 0017
+ 0013: 0x20 0x00 0x00 0x00000000  A = sys_number
+ 0014: 0x15 0x0d 0x00 0x00000000  if (A == aarch64.io_setup) goto 0028
+ 0015: 0x15 0x0c 0x00 0x00000001  if (A == aarch64.io_destroy) goto 0028
+ 0016: 0x15 0x0b 0x0a 0x00000002  if (A == aarch64.io_submit) goto 0028 else goto 0027
+ 0017: 0x15 0x00 0x04 0x80000016  if (A != ARCH_S390X) goto 0022
+ 0018: 0x20 0x00 0x00 0x00000000  A = sys_number
+ 0019: 0x15 0x08 0x00 0x00000000  if (A == 0x0) goto 0028
+ 0020: 0x15 0x07 0x00 0x00000001  if (A == s390x.exit) goto 0028
+ 0021: 0x15 0x06 0x05 0x00000002  if (A == s390x.fork) goto 0028 else goto 0027
+ 0022: 0x15 0x00 0x04 0xc00000f3  if (A != ARCH_RISCV64) goto 0027
+ 0023: 0x20 0x00 0x00 0x00000000  A = sys_number
+ 0024: 0x15 0x03 0x00 0x00000000  if (A == riscv64.io_setup) goto 0028
+ 0025: 0x15 0x02 0x00 0x00000001  if (A == riscv64.io_destroy) goto 0028
+ 0026: 0x15 0x01 0x00 0x00000002  if (A == riscv64.io_submit) goto 0028
+ 0027: 0x06 0x00 0x00 0x00000000  return KILL
+ 0028: 0x06 0x00 0x00 0x7fff0000  return ALLOW
+    EOS
+  end
+
+  it 'names arguments by the filter-inferred arch, not the declared one' do
+    # Assembled for amd64 but disassembled as aarch64. The `arch == X86_64` check lets disasm infer
+    # amd64, so syscall 1 and its arguments must read as amd64.write(fd, ...) - the same inference
+    # the jump line already uses - and not the aarch64 syscall 1 (io_destroy(ctx)).
+    src = <<-EOS
+      A = arch
+      A == ARCH_X86_64 ? next : dead
+      A = sys_number
+      A == write ? chk : dead
+    chk:
+      A = args[0]
+      return ALLOW
+    dead:
+      return KILL
+    EOS
+    out = described_class.disasm(SeccompTools::Asm.asm(src, arch: :amd64), arch: :aarch64)
+    expect(out).to include('if (A != amd64.write) goto')
+    expect(out).to include('A = fd # amd64.write(fd, buf, count)')
+  end
+
+  it 'propagates a pinned value through an A == X comparison' do
+    # X ends up holding args[1], pinned to 1; A == X then pins sys_number to 1 (write), so the
+    # later args[0] load is named fd # write(...).
+    src = <<-EOS
+      A = args[1]
+      A == 0x1 ? n1 : deny
+    n1:
+      X = A
+      A = sys_number
+      A == X ? n2 : deny
+    n2:
+      A = args[0]
+      return ALLOW
+    deny:
+      return KILL
+    EOS
+    out = described_class.disasm(SeccompTools::Asm.asm(src, arch: :amd64), arch: :amd64, display_bpf: false)
+    expect(out).to include('A = fd # write(fd, buf, count)')
+  end
+
+  it 'shows TRACE/TRAP data and an unknown action, all re-assemblable' do
+    { 'TRACE(5)' => 'return TRACE(5)', 'TRAP(7)' => 'return TRAP(7)',
+      '0x12345678' => 'return 0x12345678' }.each do |asm, expected|
+      raw = SeccompTools::Asm.asm("return #{asm}", arch: :amd64)
+      out = described_class.disasm(raw, arch: :amd64, display_bpf: false)
+      expect(out).to include(expected)
+      expect(SeccompTools::Asm.asm(out.sub(/\A\d+: /, ''), arch: :amd64)).to eq raw # faithful round-trip
+    end
   end
 end

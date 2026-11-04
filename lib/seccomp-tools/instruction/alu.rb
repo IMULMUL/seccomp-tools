@@ -4,7 +4,9 @@ require 'seccomp-tools/instruction/base'
 
 module SeccompTools
   module Instruction
-    # Instruction alu.
+    # Instruction alu, performs an arithmetic or bitwise operation on the accumulator register A.
+    #
+    # The right operand is either the X register or the immediate +k+.
     class ALU < Base
       # Mapping from name to operator.
       OP_SYM = {
@@ -17,10 +19,12 @@ module SeccompTools
         lsh: :<<,
         rsh: :>>,
         # neg: :-, # should not be invoked
-        # mod: :%, # unsupported
+        # mod: :%, # the kernel rejects BPF_MOD (see Const::BPF::OP), so it never reaches here
         xor: :^
       }.freeze
       # Decompile instruction.
+      # @return [String]
+      #   The operation as assembly, e.g. +"A &= 0x7fff"+.
       def decompile
         return 'A = -A' if op == :neg
 
@@ -29,6 +33,8 @@ module SeccompTools
 
       # See {Instruction::Base#symbolize}.
       # @return [[:alu, Symbol, (:x, Integer, nil)]]
+      #   The operator and its right operand, which is +:x+ for the X register, an Integer for an
+      #   immediate, or +nil+ for the unary +neg+.
       def symbolize
         return [:alu, :neg, nil] if op == :neg
 
@@ -36,13 +42,12 @@ module SeccompTools
       end
 
       # See {Base#branch}.
-      # @param [Context] context
-      #   Current context.
-      # @return [Array<(Integer, Context)>]
-      def branch(context)
-        ctx = context.dup
-        ctx[:a] = Disasm::Context::Value.new
-        [[line + 1, ctx]]
+      # @param [Symbolic::State] state
+      #   Current state.
+      # @return [Array<(Integer, Symbolic::State)>]
+      #   Always the next line, with A marked as no longer tracked.
+      def branch(state)
+        [[line + 1, state.with(a: Symbolic::Expr.opaque)]]
       end
 
       private

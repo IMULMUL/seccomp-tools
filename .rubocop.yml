@@ -1,6 +1,14 @@
 AllCops:
   DisplayCopNames: true
   DisplayStyleGuide: true
+  Exclude:
+    - lib/**/*.tab.rb
+    - tmp/**/*
+    - vendor/bundle/**/*
+  NewCops: enable
+
+Gemspec/DevelopmentDependencies:
+  Enabled: false
 
 Layout/EndOfLine:
   EnforcedStyle: lf
@@ -20,6 +28,11 @@ Metrics/BlockLength:
 
 Metrics/ClassLength:
   Enabled: false
+
+Metrics/CollectionLiteralLength:
+  Enabled: true
+  Exclude:
+    - lib/seccomp-tools/consts/**/*
 
 Metrics/CyclomaticComplexity:
   Enabled: false
@@ -43,8 +56,16 @@ Naming/VariableNumber:
   Exclude:
     - lib/seccomp-tools/consts/**/*.rb
 
+Style/AsciiComments:
+  Enabled: true
+
 Style/FormatStringToken:
   Enabled: false
+
+Style/OpenStructUse:
+  Enabled: true
+  Exclude:
+    - spec/**/*
 
 Style/PercentLiteralDelimiters:
   Enabled: false

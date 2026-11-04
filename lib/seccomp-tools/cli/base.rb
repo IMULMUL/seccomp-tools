@@ -2,13 +2,19 @@
 
 require 'optparse'
 
+require 'seccomp-tools/logger'
 require 'seccomp-tools/util'
 
 module SeccompTools
   module CLI
     # Base class for handlers.
+    #
+    # Each subcommand is a subclass that defines a +USAGE+ constant and a +parser+, and overrides
+    # {#handle} to do its work.
     class Base
-      # @return [Hash{Symbol => Object}] Options.
+      # @return [{Symbol => Object}]
+      #   Options parsed from the command line. Common keys are +:arch+, +:ifile+, +:ofile+,
+      #   +:format+, +:limit+, +:pid+ and +:verbose+, depending on the subcommand.
       attr_reader :option
       # @return [Array<String>] Arguments array.
       attr_reader :argv
@@ -23,14 +29,29 @@ module SeccompTools
 
       private
 
-      # Handle show help message.
+      # Parses the common options, and shows the help message when asked to.
       # @return [Boolean]
-      #   For decestors to check if need to continue.
+      #   For descendants to check whether they need to continue. +false+ when the help message
+      #   was shown and there is nothing left to do.
       def handle
-        return CLI.show(parser.help) if argv.empty? || %w[-h --help].any? { |h| argv.include?(h) }
+        return CLI.show(parser.help) if argv.empty? || %w[-h --help].intersect?(argv)
 
         parser.parse!(argv)
-        option[:arch] ||= Util.system_arch
+
+        # Fill in the architecture from the host when --arch was not given. A command that offers
+        # --arch needs a concrete architecture to name syscalls; if the host CPU is one seccomp-tools
+        # does not recognize, auto-detection cannot supply one, so fail with a clear message instead
+        # of letting :unknown reach a syscall-table lookup and raise deep down.
+        return true unless option[:arch].nil?
+
+        arch = Util.system_arch
+        if arch == :unknown && @arch_option_offered
+          Logger.error('Could not detect the host architecture; specify one with ' \
+                       "--arch <#{Util.supported_archs.join('|')}>.")
+          return false
+        end
+
+        option[:arch] = arch
         true
       end
 
@@ -39,10 +60,13 @@ module SeccompTools
       # @return [String]
       #   String read from file.
       def input
-        option[:ifile] == '-' ? $stdin.read.force_encoding('ascii-8bit') : IO.binread(option[:ifile])
+        option[:ifile] == '-' ? $stdin.read.force_encoding('ascii-8bit') : File.binread(option[:ifile])
       end
 
       # Write data to stdout or file(s).
+      #
+      # When +option[:ofile]+ is set, each call writes to a new file named after it with an
+      # incrementing serial number, see {#file_of}. Colors are disabled while writing to a file.
       # @yieldreturn [String]
       #   The data to be written.
       # @return [void]
@@ -55,7 +79,7 @@ module SeccompTools
         # Write to file, we should disable colorize
         enabled = Util.colorize_enabled?
         Util.disable_color! if enabled
-        IO.binwrite(file_of(option[:ofile], @serial), yield)
+        File.binwrite(file_of(option[:ofile], @serial), yield)
         Util.enable_color! if enabled
         @serial += 1
       end
@@ -65,7 +89,7 @@ module SeccompTools
       # @param [String] file
       #   Filename.
       # @param [Integer] serial
-      #   serial number, starts from zero.
+      #   Serial number, starts from zero.
       # @return [String]
       #   Result filename.
       # @example
@@ -89,11 +113,30 @@ module SeccompTools
         self.class.const_get(:USAGE)
       end
 
-      def option_arch(opt)
+      # Warns about positional arguments left over in {#argv} after the command has taken what it
+      # needs, e.g. an exec given together with +-c+, or anything after +--pid+. The command still
+      # proceeds.
+      # @return [void]
+      def warn_ignored_arguments
+        return if argv.empty?
+
+        Logger.warn("ignoring unused argument#{'s' if argv.size > 1}: #{argv.join(' ')}")
+      end
+
+      # Registers the common +--arch+ option on +opt+.
+      #
+      # @param [OptionParser] opt
+      #   The parser to add the option to.
+      # @param [Array<String>] extra_desc
+      #   Extra description lines appended after the default ones, for command-specific guidance.
+      # @return [void]
+      def option_arch(opt, *extra_desc)
+        @arch_option_offered = true
         supported = Util.supported_archs
         opt.on('-a', '--arch ARCH', supported, 'Specify architecture.',
                "Supported architectures are <#{supported.join('|')}>.",
-               "Default: #{Util.system_arch}") do |a|
+               'Default: auto-detected from the host machine.',
+               'Set it when the filter targets an architecture other than the host.', *extra_desc) do |a|
           option[:arch] = a
         end
       end

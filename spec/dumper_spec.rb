@@ -42,6 +42,25 @@ describe SeccompTools::Dumper do
       end
     end
 
+    context 'strict mode' do
+      before do
+        # equivalent filter synthesized for SECCOMP_MODE_STRICT, see Syscall.strict_bpf
+        @strict_bpf = " \x00\x00\x00\x00\x00\x00\x00\x15\x00\x04\x00\x00\x00\x00\x00\x15\x00\x03\x00\x01\x00\x00\x00\x15\x00\x02\x00<\x00\x00\x00\x15\x00\x01\x00\x0F\x00\x00\x00\x06\x00\x00\x00\x00\x00\x00\x00\x06\x00\x00\x00\x00\x00\xFF\x7F" # rubocop:disable Layout/LineLength
+      end
+
+      it 'prctl' do
+        output = described_class.dump(bin_of('strict_prctl'))
+        expect(output.size).to be 1
+        expect(output.first).to eq @strict_bpf
+      end
+
+      it 'seccomp' do
+        output = described_class.dump(bin_of('strict_seccomp'))
+        expect(output.size).to be 1
+        expect(output.first).to eq @strict_bpf
+      end
+    end
+
     context 'no seccomp' do
       it { expect(described_class.dump('ls >/dev/null')).to be_empty }
     end
@@ -62,29 +81,55 @@ describe SeccompTools::Dumper do
     context 'amigo' do
       it 'normal' do
         bin = bin_of('CONFidence-2017-amigo')
-        bpf = IO.binread(File.join(__dir__, 'data', 'CONFidence-2017-amigo.bpf'))
+        bpf = File.binread(File.join(__dir__, 'data', 'CONFidence-2017-amigo.bpf'))
         got = described_class.dump(bin).first
         # there's pid inside seccomp rules.. ignore it
         expect(got.size).to be bpf.size
         expect(got[0, 0x1ec]).to eq bpf[0, 0x1ec]
-        expect(got[0x1f0..-1]).to eq bpf[0x1f0..-1]
+        expect(got[0x1f0..]).to eq bpf[0x1f0..]
       end
     end
   end
 
+  describe 'timeout' do
+    it 'kills the process when timeout is reached' do
+      start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      expect(described_class.dump('sleep', '1d', timeout: 0.1)).to be_empty
+      expect(Process.clock_gettime(Process::CLOCK_MONOTONIC) - start).to be < 1
+    end
+
+    it 'returns the filters dumped before the timeout' do
+      skip_unless_amd64
+
+      # pipe from sleep so the binary blocks on stdin until the timeout fires
+      output = described_class.dump("sleep 1d | #{bin_of('two_filters')}", limit: -1, timeout: 1)
+      expect(output.size).to be 2
+    end
+  end
+
   describe 'by pid' do
+    it 'yields the architecture of the target process' do
+      skip 'ptrace is Linux-only' unless described_class::SUPPORTED
+
+      # Tracing our own pid, so /proc/self/exe is ruby: the filters are read through a stubbed
+      # ptrace, but the architecture is really detected - it used to always be nil here.
+      allow(SeccompTools::Ptrace).to receive(:attach_and_wait)
+      allow(SeccompTools::Ptrace).to receive(:detach)
+      allow(SeccompTools::Ptrace).to receive(:seccomp_get_filter).and_return("\x06\x00\x00\x00\x00\x00\xff\x7f")
+      arches = described_class.dump_by_pid(Process.pid, 1) { |_bpf, arch| arch }
+      expect(arches).to eq [SeccompTools::Util.system_arch]
+    end
+
     context 'two filters' do
       let(:bin) { bin_of('two_filters') }
 
       let(:popen) do
         lambda do |&block|
           popen2(bin) do |i, o, pid|
-            begin
-              o.gets # seccomp installed
-              block.call(pid)
-            ensure
-              i.puts
-            end
+            o.gets # seccomp installed
+            block.call(pid)
+          ensure
+            i.puts
           end
         end
       end

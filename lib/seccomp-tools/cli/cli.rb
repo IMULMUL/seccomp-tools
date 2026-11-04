@@ -1,9 +1,12 @@
 # frozen_string_literal: true
 
 require 'seccomp-tools/cli/asm'
+require 'seccomp-tools/cli/audit'
+require 'seccomp-tools/cli/completion'
 require 'seccomp-tools/cli/disasm'
 require 'seccomp-tools/cli/dump'
 require 'seccomp-tools/cli/emu'
+require 'seccomp-tools/cli/explain'
 require 'seccomp-tools/version'
 
 module SeccompTools
@@ -12,9 +15,12 @@ module SeccompTools
     # Handled commands
     COMMANDS = {
       'asm' => SeccompTools::CLI::Asm,
+      'audit' => SeccompTools::CLI::Audit,
+      'completion' => SeccompTools::CLI::Completion,
       'disasm' => SeccompTools::CLI::Disasm,
       'dump' => SeccompTools::CLI::Dump,
-      'emu' => SeccompTools::CLI::Emu
+      'emu' => SeccompTools::CLI::Emu,
+      'explain' => SeccompTools::CLI::Explain
     }.freeze
 
     # Main usage message.
@@ -57,14 +63,12 @@ EOS
       COMMANDS[cmd].new(argv).handle
     end
 
-    # Just write message to stdout.
+    # Writes a message to stdout, followed by a newline.
     # @param [String] msg
-    #   The message.
-    # @return [false]
-    #   Always return +false+.
+    #   The message to be written.
+    # @return [void]
     def show(msg)
       puts msg
-      false
     end
 
     class << self

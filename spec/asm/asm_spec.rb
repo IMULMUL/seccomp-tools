@@ -11,10 +11,10 @@ describe SeccompTools::Asm do
 
   it 'normal-asm' do
     raw = described_class.asm(<<-EOS, arch: :amd64)
-    # lines start with '#' are comments
+    # lines starting with '#' are comments
       A = sys_number # here's a comment, too
-      A >= 0x40000000 ? dead : next # 'next' is a keyword, denote the next instruction
-      A == read ? ok : next # custom defined label 'dead' and 'ok'
+      A >= 0x40000000 ? dead : next # 'next' is a keyword, denoting the next instruction
+      A == read ? ok : next # custom-defined labels 'dead' and 'ok'
       A == 1 ? ok : next # SYS_write = 1 in amd64
       return ERRNO(1)
     dead:
@@ -66,7 +66,9 @@ describe SeccompTools::Asm do
     rule = <<-EOS
       A = execve
       A = sys_number
-      A == read ? 1 : next
+      A == read ? 0004 : next
+      A = X
+0004: return ALLOW
     EOS
     raw = described_class.asm(rule, arch: :amd64)
     expect(SeccompTools::Disasm.disasm(raw, arch: :amd64)).to include <<-EOS
@@ -80,6 +82,13 @@ describe SeccompTools::Asm do
  0000: 0x00 0x00 0x00 0x0000000b  A = 11
  0001: 0x20 0x00 0x00 0x00000000  A = sys_number
  0002: 0x15 0x01 0x00 0x00000003  if (A == read) goto 0004
+    EOS
+
+    raw = described_class.asm(rule, arch: :riscv64)
+    expect(SeccompTools::Disasm.disasm(raw, arch: :riscv64)).to include <<-EOS
+ 0000: 0x00 0x00 0x00 0x000000dd  A = 221
+ 0001: 0x20 0x00 0x00 0x00000000  A = sys_number
+ 0002: 0x15 0x01 0x00 0x0000003f  if (A == read) goto 0004
     EOS
   end
 
@@ -123,6 +132,7 @@ describe SeccompTools::Asm do
       A |= 2
       A >>= 1
       A <<= 1
+      A = -A
       A ^= 0x1337
     EOS
     expect(SeccompTools::Disasm.disasm(raw, arch: :amd64)).to eq <<-EOS
@@ -136,7 +146,57 @@ describe SeccompTools::Asm do
  0005: 0x44 0x00 0x00 0x00000002  A |= 0x2
  0006: 0x74 0x00 0x00 0x00000001  A >>= 1
  0007: 0x64 0x00 0x00 0x00000001  A <<= 1
- 0008: 0xa4 0x00 0x00 0x00001337  A ^= 0x1337
+ 0008: 0x84 0x00 0x00 0x00000000  A = -A
+ 0009: 0xa4 0x00 0x00 0x00001337  A ^= 0x1337
     EOS
+  end
+
+  it 'uses big-endian word order for 64-bit fields on s390x' do
+    # On s390x the high 32-bit word of a 64-bit seccomp_data field comes first (see
+    # arch_arg_offset_lo/hi in libseccomp and syscall_arg in the kernel's seccomp selftests),
+    # so args[2] (its low half) is at offset 0x24 and args[2] >> 32 at 0x20.
+    src = <<-EOS
+      A = args[2]
+      A = args[2] >> 32
+      A = args_h[2]
+      A = instruction_pointer
+      A = instruction_pointer >> 32
+      return ALLOW
+    EOS
+    raw = described_class.asm(src, arch: :s390x)
+    expect(SeccompTools::Disasm.disasm(raw, arch: :s390x)).to eq <<-EOS
+ line  CODE  JT   JF      K
+=================================
+ 0000: 0x20 0x00 0x00 0x00000024  A = args[2]
+ 0001: 0x20 0x00 0x00 0x00000020  A = args[2] >> 32
+ 0002: 0x20 0x00 0x00 0x00000020  A = args[2] >> 32
+ 0003: 0x20 0x00 0x00 0x0000000c  A = instruction_pointer
+ 0004: 0x20 0x00 0x00 0x00000008  A = instruction_pointer >> 32
+ 0005: 0x06 0x00 0x00 0x7fff0000  return ALLOW
+    EOS
+    # ... while a little-endian arch keeps the low half first.
+    raw = described_class.asm(src, arch: :amd64)
+    expect(SeccompTools::Disasm.disasm(raw, arch: :amd64)).to eq <<-EOS
+ line  CODE  JT   JF      K
+=================================
+ 0000: 0x20 0x00 0x00 0x00000020  A = args[2]
+ 0001: 0x20 0x00 0x00 0x00000024  A = args[2] >> 32
+ 0002: 0x20 0x00 0x00 0x00000024  A = args[2] >> 32
+ 0003: 0x20 0x00 0x00 0x00000008  A = instruction_pointer
+ 0004: 0x20 0x00 0x00 0x0000000c  A = instruction_pointer >> 32
+ 0005: 0x06 0x00 0x00 0x7fff0000  return ALLOW
+    EOS
+  end
+
+  it 'accepts output of disasm' do
+    files = Dir.glob('spec/data/*.bpf')
+    # Disassemble and reassemble under the same arch, otherwise the round-trip depends on the host arch:
+    # syscall names are arch-specific, so names emitted for one arch may not exist in another's table.
+    SeccompTools::Syscall::ABI.each_key do |arch|
+      files.each do |f|
+        input = SeccompTools::Disasm.disasm(File.binread(f), arch:, display_bpf: false, arg_infer: false)
+        expect { described_class.asm(input, arch:, filename: f) }.to_not raise_error
+      end
+    end
   end
 end

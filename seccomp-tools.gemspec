@@ -3,14 +3,11 @@
 lib = File.expand_path('lib', __dir__)
 $LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
 
-require 'date'
-
 require 'seccomp-tools/version'
 
 Gem::Specification.new do |s|
   s.name          = 'seccomp-tools'
-  s.version       = ::SeccompTools::VERSION
-  s.date          = Date.today.to_s
+  s.version       = SeccompTools::VERSION
   s.summary       = 'seccomp-tools'
   s.description   = <<-EOS
 Provide useful tools to analyze seccomp rules.
@@ -19,26 +16,31 @@ Visit https://github.com/david942j/seccomp-tools for more details.
   s.license       = 'MIT'
   s.authors       = ['david942j']
   s.email         = ['david942j@gmail.com']
-  s.files         = Dir['lib/**/*.rb'] + Dir['lib/seccomp-tools/templates/*'] + Dir['bin/*'] + Dir['ext/**/*'] + %w(README.md)
+  s.files         = Dir['lib/**/*.rb'] + Dir['lib/**/*.y'] +
+                    Dir['lib/seccomp-tools/templates/*'] + Dir['bin/*'] + Dir['ext/**/*'] +
+                    Dir['completions/*'] + %w(README.md CHANGELOG.md LICENSE)
   s.extensions    = %w[ext/ptrace/extconf.rb]
   s.executables   = 'seccomp-tools'
 
   s.metadata = {
     'bug_tracker_uri' => 'https://github.com/david942j/seccomp-tools/issues',
-    'documentation_uri' => 'https://www.rubydoc.info/github/david942j/seccomp-tools/master',
+    'changelog_uri' => "https://github.com/david942j/seccomp-tools/blob/v#{SeccompTools::VERSION}/CHANGELOG.md",
+    'documentation_uri' => "https://www.rubydoc.info/gems/seccomp-tools/#{SeccompTools::VERSION}",
     'homepage_uri' => 'https://github.com/david942j/seccomp-tools',
-    'source_code_uri' => 'https://github.com/david942j/seccomp-tools'
+    'source_code_uri' => 'https://github.com/david942j/seccomp-tools',
+    'rubygems_mfa_required' => 'true'
   }
 
-  s.required_ruby_version = '>= 2.4'
+  s.required_ruby_version = '>= 3.1'
 
+  s.add_development_dependency 'ostruct'
   s.add_development_dependency 'rake', '~> 13.0'
   s.add_development_dependency 'rake-compiler', '~> 1.0'
   s.add_development_dependency 'rspec', '~> 3.9'
-  s.add_development_dependency 'rubocop', '~> 1.1'
-  # https://github.com/codeclimate/test-reporter/issues/418
-  s.add_development_dependency 'simplecov', '~> 0.17', '< 0.18'
+  s.add_development_dependency 'rubocop', '~> 1'
+  s.add_development_dependency 'simplecov', '~> 1.0'
   s.add_development_dependency 'yard', '~> 0.9'
 
-  s.add_dependency 'os', '~> 1.1', '>= 1.1.1'
+  s.add_dependency 'logger'
+  s.add_dependency 'racc', '~> 1.8'
 end
